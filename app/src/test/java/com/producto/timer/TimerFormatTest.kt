@@ -21,15 +21,17 @@ class TimerFormatTest {
 
     @Test
     fun sessionType_next_alternatesFocusAndBreak() {
-        assertEquals(SessionType.BREAK, SessionType.FOCUS.next())
-        assertEquals(SessionType.FOCUS, SessionType.BREAK.next())
+        assertEquals(SessionType.SHORT_BREAK, SessionType.FOCUS.next())
+        assertEquals(SessionType.FOCUS, SessionType.SHORT_BREAK.next())
+        assertEquals(SessionType.FOCUS, SessionType.LONG_BREAK.next())
     }
 
     @Test
     fun durationMillis_derivesFromConfiguredMinutes() {
-        val preferences = FakeTimerPreferences(focusMinutes = 50, breakMinutes = 10)
+        val preferences = FakeTimerPreferences(focusMinutes = 50, shortBreakMinutes = 10, longBreakMinutes = 20)
 
         assertEquals(50 * 60_000L, preferences.durationMillis(SessionType.FOCUS))
-        assertEquals(10 * 60_000L, preferences.durationMillis(SessionType.BREAK))
+        assertEquals(10 * 60_000L, preferences.durationMillis(SessionType.SHORT_BREAK))
+        assertEquals(20 * 60_000L, preferences.durationMillis(SessionType.LONG_BREAK))
     }
 }

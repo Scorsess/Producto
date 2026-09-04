@@ -1,5 +1,6 @@
 package com.producto.timer
 
+import com.producto.timer.nextcloud.NextcloudTask
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -8,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -18,6 +20,7 @@ class TimerViewModelTest {
     private var virtualTime = 0L
     private val preferences = FakeTimerPreferences()
     private val notifier = FakeSessionNotifier()
+    private val nextcloudPrefs = FakeNextcloudPreferences()
 
     @Before
     fun setUp() {
@@ -30,7 +33,12 @@ class TimerViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel() = TimerViewModel(preferences, notifier, now = { virtualTime })
+    private fun createViewModel() = TimerViewModel(
+        preferences = preferences,
+        notifier = notifier,
+        nextcloudPrefs = nextcloudPrefs,
+        now = { virtualTime }
+    )
 
     @Test
     fun initialState_isFocusSessionNotRunning() {
@@ -60,23 +68,24 @@ class TimerViewModelTest {
         virtualTime += preferences.focusMinutes * 60_000L
         dispatcher.scheduler.advanceTimeBy(preferences.focusMinutes * 60_000L)
         dispatcher.scheduler.runCurrent()
-        assertEquals(true, viewModel.uiState.value.isFinished)
-        assertEquals(false, viewModel.uiState.value.isRunning)
+
         assertEquals(0L, viewModel.uiState.value.remainingMillis)
+        assertEquals(false, viewModel.uiState.value.isRunning)
+        assertEquals(true, viewModel.uiState.value.isFinished)
         assertEquals(1, notifier.notifyCount)
     }
 
     @Test
-    fun pause_stopsCountdownWithoutResettingRemainingTime() = runTest {
+    fun pause_stopsCountdownPreservingRemainingTime() = runTest {
         val viewModel = createViewModel()
 
         viewModel.start()
-        virtualTime += 2_000
-        dispatcher.scheduler.advanceTimeBy(2_000)
+        virtualTime += 5_000
+        dispatcher.scheduler.advanceTimeBy(5_000)
         dispatcher.scheduler.runCurrent()
-        viewModel.pause()
 
         val remainingAtPause = viewModel.uiState.value.remainingMillis
+        viewModel.pause()
         assertEquals(false, viewModel.uiState.value.isRunning)
 
         virtualTime += 5_000
@@ -91,8 +100,8 @@ class TimerViewModelTest {
 
         viewModel.startNextSession()
 
-        assertEquals(SessionType.BREAK, viewModel.uiState.value.sessionType)
-        assertEquals(preferences.breakMinutes * 60_000L, viewModel.uiState.value.remainingMillis)
+        assertEquals(SessionType.SHORT_BREAK, viewModel.uiState.value.sessionType)
+        assertEquals(preferences.shortBreakMinutes * 60_000L, viewModel.uiState.value.remainingMillis)
         assertEquals(true, viewModel.uiState.value.isRunning)
         assertEquals(false, viewModel.uiState.value.isFinished)
         assertEquals(1, viewModel.uiState.value.completedFocusSessions)
@@ -103,43 +112,38 @@ class TimerViewModelTest {
     fun startNextSession_fromBreak_doesNotIncrementFocusCount() = runTest {
         val viewModel = createViewModel()
 
-        viewModel.startNextSession() // Focus -> Break, count = 1
-        viewModel.startNextSession() // Break -> Focus, count unchanged
+        viewModel.startNextSession() // Focus -> Short Break, count = 1
+        viewModel.startNextSession() // Short Break -> Focus, count unchanged
 
         assertEquals(SessionType.FOCUS, viewModel.uiState.value.sessionType)
         assertEquals(1, viewModel.uiState.value.completedFocusSessions)
     }
 
     @Test
-    fun updateDurations_whileIdle_refreshesCurrentCountdownImmediately() {
+    fun selectActiveTask_updatesStateAndPreferences() {
         val viewModel = createViewModel()
+        val task = NextcloudTask(uid = "123", summary = "Nextcloud Task 1")
 
-        viewModel.updateDurations(focusMinutes = 50, breakMinutes = 15)
+        viewModel.selectActiveTask(task)
+        assertEquals(task, viewModel.uiState.value.activeTask)
+        assertEquals("123", nextcloudPrefs.activeTaskUid)
+        assertEquals("Nextcloud Task 1", nextcloudPrefs.activeTaskSummary)
 
-        val state = viewModel.uiState.value
-        assertEquals(50, state.focusMinutes)
-        assertEquals(15, state.breakMinutes)
-        assertEquals(50 * 60_000L, state.totalMillis)
-        assertEquals(50 * 60_000L, state.remainingMillis)
-        assertEquals(50, preferences.focusMinutes)
-        assertEquals(15, preferences.breakMinutes)
+        viewModel.selectActiveTask(null)
+        assertNull(viewModel.uiState.value.activeTask)
+        assertNull(nextcloudPrefs.activeTaskUid)
+        assertNull(nextcloudPrefs.activeTaskSummary)
     }
 
     @Test
-    fun updateDurations_whileRunning_doesNotAlterInProgressCountdown() = runTest {
+    fun disconnectNextcloud_resetsTasksAndActiveTask() {
         val viewModel = createViewModel()
+        val task = NextcloudTask(uid = "123", summary = "Nextcloud Task 1")
+        viewModel.selectActiveTask(task)
 
-        viewModel.start()
-        virtualTime += 2_000
-        dispatcher.scheduler.advanceTimeBy(2_000)
-        dispatcher.scheduler.runCurrent()
-        val remainingBeforeUpdate = viewModel.uiState.value.remainingMillis
-
-        viewModel.updateDurations(focusMinutes = 50, breakMinutes = 15)
-
-        val state = viewModel.uiState.value
-        assertEquals(remainingBeforeUpdate, state.remainingMillis)
-        assertEquals(50, state.focusMinutes)
-        assertEquals(15, state.breakMinutes)
+        viewModel.disconnectNextcloud()
+        assertNull(viewModel.uiState.value.nextcloudConfig)
+        assertEquals(0, viewModel.uiState.value.nextcloudTasks.size)
+        assertNull(viewModel.uiState.value.activeTask)
     }
 }

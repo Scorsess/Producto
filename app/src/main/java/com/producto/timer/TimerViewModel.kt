@@ -13,6 +13,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
+import com.producto.timer.nextcloud.AndroidNextcloudPreferences
+import com.producto.timer.nextcloud.NextcloudCalDavClient
+import com.producto.timer.nextcloud.NextcloudConfig
+import com.producto.timer.nextcloud.NextcloudPreferences
+import com.producto.timer.nextcloud.NextcloudTask
 
 /**
  * Snapshot of the active countdown. [isFinished] means the current session's time is up and is
@@ -32,7 +37,13 @@ data class TimerUiState(
     val profiles: List<TimerProfile> = emptyList(),
     val currentProfileId: String = "default",
     val globalFontFamilyIndex: Int = 0,
-    val globalFontColorArgb: Long = TimerPreferences.DEFAULT_COLOR
+    val globalFontColorArgb: Long = TimerPreferences.DEFAULT_COLOR,
+    val nextcloudConfig: NextcloudConfig? = null,
+    val nextcloudTasks: List<NextcloudTask> = emptyList(),
+    val activeTask: NextcloudTask? = null,
+    val isNextcloudLoading: Boolean = false,
+    val nextcloudError: String? = null,
+    val nextcloudSuccessMessage: String? = null
 )
 
 private const val TICK_MILLIS = 1000L
@@ -52,6 +63,18 @@ private const val TICK_MILLIS = 1000L
 class TimerViewModel(
     private val preferences: TimerPreferences,
     private val notifier: SessionNotifier,
+    private val nextcloudPrefs: NextcloudPreferences = object : NextcloudPreferences {
+        override var serverUrl: String = ""
+        override var username: String = ""
+        override var appPassword: String = ""
+        override var activeTaskUid: String? = null
+        override var activeTaskSummary: String? = null
+        override fun getConfig(): NextcloudConfig? = null
+        override fun saveConfig(config: NextcloudConfig) {}
+        override fun clearConfig() {}
+        override fun clearActiveTask() {}
+    },
+    private val clientFactory: (NextcloudConfig) -> NextcloudCalDavClient = { NextcloudCalDavClient(it) },
     private val now: () -> Long = { System.currentTimeMillis() }
 ) : ViewModel() {
 
@@ -62,12 +85,30 @@ class TimerViewModel(
 
     init {
         android.util.Log.d("TimerApp", "TimerViewModel initialized")
+        val savedActiveUid = nextcloudPrefs.activeTaskUid
+        val savedActiveSummary = nextcloudPrefs.activeTaskSummary
+        if (!savedActiveUid.isNullOrBlank() && !savedActiveSummary.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    activeTask = NextcloudTask(
+                        uid = savedActiveUid,
+                        summary = savedActiveSummary
+                    )
+                )
+            }
+        }
+        val config = nextcloudPrefs.getConfig()
+        if (config != null) {
+            _uiState.update { it.copy(nextcloudConfig = config) }
+            fetchNextcloudTasks()
+        }
     }
 
     private fun buildFreshState(session: SessionType): TimerUiState {
         android.util.Log.d("TimerApp", "buildFreshState for $session")
         val duration = preferences.durationMillis(session)
         val profiles = preferences.getProfiles()
+        val currentNcState = try { _uiState.value } catch (_: Exception) { null }
         return TimerUiState(
             sessionType = session,
             focusMinutes = preferences.focusMinutes,
@@ -80,7 +121,13 @@ class TimerViewModel(
             profiles = profiles,
             currentProfileId = preferences.currentProfileId,
             globalFontFamilyIndex = preferences.globalFontFamilyIndex,
-            globalFontColorArgb = preferences.globalFontColorArgb
+            globalFontColorArgb = preferences.globalFontColorArgb,
+            nextcloudConfig = currentNcState?.nextcloudConfig ?: nextcloudPrefs.getConfig(),
+            nextcloudTasks = currentNcState?.nextcloudTasks ?: emptyList(),
+            activeTask = currentNcState?.activeTask,
+            isNextcloudLoading = currentNcState?.isNextcloudLoading ?: false,
+            nextcloudError = currentNcState?.nextcloudError,
+            nextcloudSuccessMessage = currentNcState?.nextcloudSuccessMessage
         )
     }
 
@@ -220,6 +267,133 @@ class TimerViewModel(
         }
     }
 
+    /** Connects to Nextcloud Tasks and validates credentials. */
+    fun connectNextcloud(serverUrl: String, username: String, appPassword: String) {
+        val config = NextcloudConfig(serverUrl.trim(), username.trim(), appPassword.trim())
+        viewModelScope.launch {
+            _uiState.update { it.copy(isNextcloudLoading = true, nextcloudError = null, nextcloudSuccessMessage = null) }
+            val client = clientFactory(config)
+            val testResult = client.testConnection()
+            if (testResult.isSuccess) {
+                nextcloudPrefs.saveConfig(config)
+                val calendarsCount = testResult.getOrDefault(0)
+                _uiState.update { 
+                    it.copy(
+                        nextcloudConfig = config,
+                        nextcloudSuccessMessage = "Connected ($calendarsCount task calendar(s) found)"
+                    ) 
+                }
+                fetchNextcloudTasks()
+            } else {
+                val errorMsg = testResult.exceptionOrNull()?.localizedMessage ?: "Failed to connect to Nextcloud"
+                _uiState.update { 
+                    it.copy(
+                        isNextcloudLoading = false,
+                        nextcloudError = "Connection failed: $errorMsg"
+                    ) 
+                }
+            }
+        }
+    }
+
+    /** Clears Nextcloud configuration and task data. */
+    fun disconnectNextcloud() {
+        nextcloudPrefs.clearConfig()
+        _uiState.update { 
+            it.copy(
+                nextcloudConfig = null,
+                nextcloudTasks = emptyList(),
+                activeTask = null,
+                nextcloudError = null,
+                nextcloudSuccessMessage = "Disconnected from Nextcloud"
+            ) 
+        }
+    }
+
+    /** Fetches pending open tasks from Nextcloud. */
+    fun fetchNextcloudTasks() {
+        val config = _uiState.value.nextcloudConfig ?: nextcloudPrefs.getConfig() ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isNextcloudLoading = true, nextcloudError = null) }
+            val client = clientFactory(config)
+            val result = client.fetchOpenTasks()
+            if (result.isSuccess) {
+                val tasks = result.getOrDefault(emptyList())
+                val currentActive = _uiState.value.activeTask
+                val updatedActive = if (currentActive != null) {
+                    tasks.find { it.uid == currentActive.uid } ?: currentActive
+                } else null
+
+                _uiState.update { 
+                    it.copy(
+                        nextcloudTasks = tasks,
+                        activeTask = updatedActive,
+                        isNextcloudLoading = false
+                    ) 
+                }
+            } else {
+                val errorMsg = result.exceptionOrNull()?.localizedMessage ?: "Failed to fetch tasks"
+                _uiState.update { 
+                    it.copy(
+                        isNextcloudLoading = false,
+                        nextcloudError = "Sync error: $errorMsg"
+                    ) 
+                }
+            }
+        }
+    }
+
+    /** Selects or deselects a task as the active focus target. */
+    fun selectActiveTask(task: NextcloudTask?) {
+        if (task != null) {
+            nextcloudPrefs.activeTaskUid = task.uid
+            nextcloudPrefs.activeTaskSummary = task.summary
+        } else {
+            nextcloudPrefs.clearActiveTask()
+        }
+        _uiState.update { it.copy(activeTask = task) }
+    }
+
+    /** Marks a task completed on Nextcloud and updates local state. */
+    fun completeTask(task: NextcloudTask) {
+        val config = _uiState.value.nextcloudConfig ?: nextcloudPrefs.getConfig() ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isNextcloudLoading = true, nextcloudError = null) }
+            val client = clientFactory(config)
+            val result = client.completeTask(task)
+            if (result.isSuccess) {
+                val updatedList = _uiState.value.nextcloudTasks.filter { it.uid != task.uid }
+                val updatedActive = if (_uiState.value.activeTask?.uid == task.uid) {
+                    nextcloudPrefs.clearActiveTask()
+                    null
+                } else {
+                    _uiState.value.activeTask
+                }
+                _uiState.update { 
+                    it.copy(
+                        nextcloudTasks = updatedList,
+                        activeTask = updatedActive,
+                        isNextcloudLoading = false,
+                        nextcloudSuccessMessage = "Completed: \"${task.summary}\""
+                    ) 
+                }
+            } else {
+                val errorMsg = result.exceptionOrNull()?.localizedMessage ?: "Failed to complete task"
+                _uiState.update { 
+                    it.copy(
+                        isNextcloudLoading = false,
+                        nextcloudError = errorMsg
+                    ) 
+                }
+            }
+        }
+    }
+
+    /** Clears temporary feedback messages. */
+    fun clearNextcloudMessages() {
+        _uiState.update { it.copy(nextcloudError = null, nextcloudSuccessMessage = null) }
+    }
+
     override fun onCleared() {
         tickerJob?.cancel()
     }
@@ -231,7 +405,8 @@ class TimerViewModel(
                 val appContext = context.applicationContext
                 TimerViewModel(
                     preferences = AndroidTimerPreferences(appContext),
-                    notifier = AndroidSessionNotifier(appContext)
+                    notifier = AndroidSessionNotifier(appContext),
+                    nextcloudPrefs = AndroidNextcloudPreferences(appContext)
                 )
             }
         }

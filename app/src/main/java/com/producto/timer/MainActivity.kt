@@ -3,6 +3,7 @@ package com.producto.timer
 import android.app.Activity
 import android.os.Bundle
 import android.view.WindowManager
+import com.producto.timer.nextcloud.NextcloudTasksDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
@@ -128,6 +129,7 @@ fun TimerScreen(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showProfileManager by rememberSaveable { mutableStateOf(false) }
     var showAppSettings by rememberSaveable { mutableStateOf(false) }
+    var showTasksDialog by rememberSaveable { mutableStateOf(false) }
     var displayMode by rememberSaveable { mutableStateOf(DisplayMode.TIMER) }
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var isExtraDim by rememberSaveable { mutableStateOf(false) }
@@ -289,6 +291,25 @@ fun TimerScreen(
                     color = timerColor
                 )
             } else {
+                val activeFocusTask = state.activeTask
+                if (activeFocusTask != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .clickable { showTasksDialog = true }
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "\u25CB ${activeFocusTask.summary}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = timerColor.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -366,6 +387,17 @@ fun TimerScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = timerColor.copy(alpha = 0.8f)
                 )
+                val finishedTargetTask = state.activeTask
+                if (state.isFinished && state.sessionType == SessionType.FOCUS && finishedTargetTask != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextButton(onClick = { viewModel.completeTask(finishedTargetTask) }) {
+                        Text(
+                            text = "✓ Complete \"${finishedTargetTask.summary}\" on Nextcloud",
+                            color = timerColor,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
                 if (!state.isRunning) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -378,6 +410,19 @@ fun TimerScreen(
         }
 
         if (!state.isRunning) {
+            IconButton(
+                onClick = { showTasksDialog = true },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "\u2611", // Checkbox icon
+                    fontSize = 24.sp,
+                    color = if (state.activeTask != null) timerColor else timerColor.copy(alpha = 0.6f)
+                )
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -458,6 +503,18 @@ fun TimerScreen(
             },
             onAdd = { name -> viewModel.addProfile(name) },
             onDelete = { id -> viewModel.deleteProfile(id) }
+        )
+    }
+
+    if (showTasksDialog) {
+        NextcloudTasksDialog(
+            state = state,
+            viewModel = viewModel,
+            timerColor = timerColor,
+            onDismiss = {
+                showTasksDialog = false
+                viewModel.clearNextcloudMessages()
+            }
         )
     }
 }
