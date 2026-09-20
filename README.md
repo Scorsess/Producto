@@ -7,6 +7,16 @@
 
 A professional-grade, distraction-free Android productivity timer built with **Kotlin** and **Jetpack Compose**. Designed for the Pomodoro technique and deep work, Producto combines an extreme minimalist AMOLED pitch-black aesthetic with powerful profile management and **direct Nextcloud Tasks integration**.
 
+## Productive by design
+
+Producto is a focused Pomodoro workspace rather than a generic countdown. The refreshed experience uses a calm dark-green visual system, clearer session hierarchy, and glanceable progress so the next action is always obvious.
+
+### New in this branch
+
+- **Daily focus goal:** Set a 1–12 session target in App Settings. Your completed-versus-target count remains visible in the main header and below the timer.
+- **Auto-start next session:** Enable hands-free transitions from a completed focus session into its next break (and onward), with a short 1.2-second handoff. Disable it any time when you want a deliberate pause.
+- **Refined interaction design:** The main screen now has stronger hierarchy, branded context, more readable status copy, and a stable Producto palette that does not change unexpectedly with device wallpaper colors.
+
 ---
 
 ## Key Features
@@ -29,6 +39,8 @@ A professional-grade, distraction-free Android productivity timer built with **K
 * **Infinite Vertical Swipe Navigation**: Cycle continuously through modes:
   $$\text{Clock} \longleftrightarrow \text{Focus} \longleftrightarrow \text{Long Break} \longleftrightarrow \text{Short Break}$$
 * **Session Tracking**: Tracks and persists completed focus sessions across app launches.
+* **Daily Focus Goal**: Set a personal target of 1–12 focus sessions and track progress at a glance.
+* **Auto-start Next Session**: Optionally move into the next focus/break phase automatically after a short handoff.
 
 ### 4. Customization & Timer Profiles
 * **Multi-Profile Support**: Create, switch, and delete customized profiles (e.g., *"Classic Pomodoro"*, *"Deep Work"*, *"Sprint"*).
@@ -50,7 +62,7 @@ A professional-grade, distraction-free Android productivity timer built with **K
 | **Swipe Down** | Cycle forward: `Clock → Focus → Long Break → Short Break → Clock`. |
 | **Swipe Up** | Cycle backward: `Clock ← Focus ← Long Break ← Short Break ← Clock`. |
 | **Tasks Button (`☑`)** | Open Nextcloud Tasks dialog (connect account, view tasks, select active goal). |
-| **Gear Icon (`⚙`)** | Open **App Settings** (Global font styles and color picker). |
+| **Gear Icon (`⚙`)** | Open **App Settings** (font styles, color picker, daily goal, and auto-start). |
 | **Tools Icon (`🛠`)** | Open **Profile Settings** (Durations and profile colors). |
 | **Profiles Label** | Open **Profile Manager** (Create, select, or delete profiles). |
 | **Sun Icon (`☀`)** | Toggle **Extra Dim** mode (0.5% screen brightness). |

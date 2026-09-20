@@ -32,6 +32,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -93,7 +97,7 @@ class MainActivity : ComponentActivity() {
             setContent {
                 val viewModel: TimerViewModel = viewModel(factory = TimerViewModel.factory(LocalContext.current))
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
-                
+
                 ProductoTheme(fontFamilyIndex = state.globalFontFamilyIndex) {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         TimerScreen(viewModel = viewModel)
@@ -125,7 +129,7 @@ fun TimerScreen(
     val view = LocalView.current
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    
+
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showProfileManager by rememberSaveable { mutableStateOf(false) }
     var showAppSettings by rememberSaveable { mutableStateOf(false) }
@@ -133,14 +137,16 @@ fun TimerScreen(
     var displayMode by rememberSaveable { mutableStateOf(DisplayMode.TIMER) }
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var isExtraDim by rememberSaveable { mutableStateOf(false) }
-    
+
     val isActiveTimer = displayMode == DisplayMode.TIMER && state.isRunning
     val timerColor = Color(state.globalFontColorArgb.toInt())
-    
+    val backgroundColor = MaterialTheme.colorScheme.background
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
     val timerFontSize = if (isLandscape) (102 * 0.85f).sp else 102.sp
     val clockFontSize = if (isLandscape) timerFontSize else (102 * 0.75f).sp
     val circleSize = if (isLandscape) (320 * 0.85f).dp else 320.dp
-    
+
     val displayFontFamily = com.producto.timer.ui.theme.getDisplayFontFamily(state.globalFontFamilyIndex)
     val displayFontWeight = com.producto.timer.ui.theme.getDisplayFontWeight(state.globalFontFamilyIndex)
 
@@ -198,7 +204,7 @@ fun TimerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(TIMER_BLACK)
+            .background(backgroundColor)
             .pointerInput(displayMode, state.sessionType) {
                 detectDragGestures(
                     onDrag = { change, dragAmount ->
@@ -257,9 +263,16 @@ fun TimerScreen(
         Row(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            Column {
+                Text("PRODUCTO", style = MaterialTheme.typography.labelMedium, color = timerColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text("Deep work, made visible.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
             ModeSelector(
                 label = "CLOCK",
                 selected = displayMode == DisplayMode.CLOCK,
@@ -272,6 +285,8 @@ fun TimerScreen(
                 color = timerColor,
                 onClick = { displayMode = DisplayMode.TIMER }
             )
+            Text("${state.completedFocusSessions}/${state.dailyGoalSessions}", style = MaterialTheme.typography.labelMedium, color = timerColor.copy(alpha = 0.9f))
+        }
         }
 
         Column(
@@ -333,14 +348,14 @@ fun TimerScreen(
                         onClick = { viewModel.setSessionType(SessionType.LONG_BREAK) }
                     )
                 }
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
-                
+
                 Box(contentAlignment = Alignment.Center) {
                     val progress = if (state.totalMillis > 0) {
                         state.remainingMillis.toFloat() / state.totalMillis
                     } else 0f
-                    
+
                     Canvas(modifier = Modifier.size(circleSize)) {
                         drawArc(
                             color = timerColor.copy(alpha = 0.2f),
@@ -401,9 +416,9 @@ fun TimerScreen(
                 if (!state.isRunning) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Focus sessions completed: ${state.completedFocusSessions}",
+                        text = "Daily focus goal  •  ${state.completedFocusSessions} of ${state.dailyGoalSessions} sessions",
                         style = MaterialTheme.typography.bodySmall,
-                        color = timerColor.copy(alpha = 0.7f)
+                        color = timerColor.copy(alpha = 0.78f)
                     )
                 }
             }
@@ -450,7 +465,7 @@ fun TimerScreen(
                 }
             }
         }
-        
+
         // Extra Dim Button
         IconButton(
             onClick = { isExtraDim = !isExtraDim },
@@ -470,9 +485,12 @@ fun TimerScreen(
         AppSettingsDialog(
             currentFontFamilyIndex = state.globalFontFamilyIndex,
             currentFontColorArgb = state.globalFontColorArgb,
+            dailyGoalSessions = state.dailyGoalSessions,
+            autoStartNextSession = state.autoStartNextSession,
             onDismiss = { showAppSettings = false },
-            onSave = { fontIndex, colorArgb ->
+            onSave = { fontIndex, colorArgb, goal, autoStart ->
                 viewModel.updateGlobalSettings(fontIndex, colorArgb)
+                viewModel.updateProductivitySettings(goal, autoStart)
                 showAppSettings = false
             }
         )
@@ -624,13 +642,13 @@ private fun ProfileSettingsDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Theme Color", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 val colors = listOf(
                     Color(0xFF00E676), Color(0xFF2979FF), Color(0xFFFF5252),
                     Color(0xFFFFD740), Color(0xFFE040FB), Color(0xFF1DE9B6),
                     Color(0xFFFFFFFF), Color(0xFFFF9100)
                 )
-                
+
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -710,7 +728,7 @@ private fun ProfileManagerDialog(
                         ) {
                             Text(
                                 text = profile.name,
-                                color = if (profile.id == currentProfileId) 
+                                color = if (profile.id == currentProfileId)
                                     Color(profile.colorArgb) else MaterialTheme.colorScheme.onSurface
                             )
                             if (profile.id != "default") {
@@ -722,9 +740,9 @@ private fun ProfileManagerDialog(
                         HorizontalDivider()
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = newProfileName,
@@ -760,12 +778,16 @@ private fun ProfileManagerDialog(
 private fun AppSettingsDialog(
     currentFontFamilyIndex: Int,
     currentFontColorArgb: Long,
+    dailyGoalSessions: Int,
+    autoStartNextSession: Boolean,
     onDismiss: () -> Unit,
-    onSave: (Int, Long) -> Unit
+    onSave: (Int, Long, Int, Boolean) -> Unit
 ) {
     var selectedFontIndex by remember { mutableStateOf(currentFontFamilyIndex) }
     var selectedColor by remember { mutableStateOf(Color(currentFontColorArgb.toInt())) }
     var showFontOptions by remember { mutableStateOf(false) }
+    var goalText by remember { mutableStateOf(dailyGoalSessions.toString()) }
+    var autoStart by remember { mutableStateOf(autoStartNextSession) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -782,7 +804,7 @@ private fun AppSettingsDialog(
                 ) {
                     Text(if (showFontOptions) "Hide Font Styles" else "Font Styles")
                 }
-                
+
                 if (showFontOptions) {
                     Spacer(modifier = Modifier.height(8.dp))
                     com.producto.timer.ui.theme.FontNames.forEachIndexed { index, name ->
@@ -807,18 +829,38 @@ private fun AppSettingsDialog(
                         }
                     }
                 }
-                
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Productivity", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = goalText,
+                    onValueChange = { goalText = it.filter(Char::isDigit).take(2) },
+                    label = { Text("Daily focus goal (sessions)") },
+                    supportingText = { Text("Aim for 1–12 completed focus sessions") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.Switch(checked = autoStart, onCheckedChange = { autoStart = it })
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text("Auto-start next session")
+                        Text("Flow from focus to break without tapping", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("Global Font Color", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(8.dp))
-                
+
                 val colors = listOf(
                     Color(0xFF00E676), Color(0xFF2979FF), Color(0xFFFF5252),
                     Color(0xFFFFD740), Color(0xFFE040FB), Color(0xFF1DE9B6),
                     Color(0xFFFFFFFF), Color(0xFFFF9100), Color(0xFFE91E63),
                     Color(0xFF9C27B0)
                 )
-                
+
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -842,7 +884,7 @@ private fun AppSettingsDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(selectedFontIndex, selectedColor.toArgb().toLong())
+                    onSave(selectedFontIndex, selectedColor.toArgb().toLong(), (goalText.toIntOrNull() ?: dailyGoalSessions).coerceIn(1, 12), autoStart)
                 }
             ) {
                 Text("Save")

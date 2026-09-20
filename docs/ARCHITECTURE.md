@@ -63,3 +63,8 @@ Producto is engineered for high performance, zero distraction, and battery conse
 * `SessionType`: `FOCUS`, `SHORT_BREAK`, `LONG_BREAK`.
 * `TimerProfile`: User-defined presets with custom durations and accent colors.
 * `NextcloudTask`: UID, summary, completion state, due date, priority, and calendar metadata.
+
+
+## 5. Productivity controls
+
+Two lightweight preferences extend the core timer without adding another service dependency. `dailyGoalSessions` stores the user’s daily target (bounded to 1–12) and is surfaced in `TimerUiState` for the header and completion summary. `autoStartNextSession` controls whether the ViewModel starts the next Pomodoro phase after a completed session, following a short 1.2-second handoff. Both values are persisted through `TimerPreferences`, so the experience survives process recreation.

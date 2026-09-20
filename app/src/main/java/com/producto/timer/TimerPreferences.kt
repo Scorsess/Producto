@@ -21,6 +21,12 @@ interface TimerPreferences {
     var currentProfileId: String
     var globalFontFamilyIndex: Int
     var globalFontColorArgb: Long
+    var dailyGoalSessions: Int
+        get() = 4
+        set(_) {}
+    var autoStartNextSession: Boolean
+        get() = false
+        set(_) {}
     fun getProfiles(): List<TimerProfile>
     fun saveProfile(profile: TimerProfile)
     fun deleteProfile(id: String)
@@ -72,6 +78,14 @@ class AndroidTimerPreferences(context: Context) : TimerPreferences {
             TimerPreferences.DEFAULT_COLOR
         }
         set(value) = prefs.edit { putLong(KEY_TIMER_COLOR, value) }
+
+    override var dailyGoalSessions: Int
+        get() = prefs.getInt(KEY_DAILY_GOAL, 4)
+        set(value) = prefs.edit { putInt(KEY_DAILY_GOAL, value.coerceIn(1, 12)) }
+
+    override var autoStartNextSession: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_START, false)
+        set(value) = prefs.edit { putBoolean(KEY_AUTO_START, value) }
 
     override var currentProfileId: String
         get() = prefs.getString(KEY_CURRENT_PROFILE_ID, "default") ?: "default"
@@ -150,5 +164,7 @@ class AndroidTimerPreferences(context: Context) : TimerPreferences {
         const val KEY_PROFILE_IDS = "profile_ids"
         const val KEY_FONT_FAMILY = "global_font_family"
         const val KEY_FONT_COLOR = "global_font_color"
+        const val KEY_DAILY_GOAL = "daily_goal_sessions"
+        const val KEY_AUTO_START = "auto_start_next_session"
     }
 }

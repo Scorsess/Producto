@@ -122,6 +122,8 @@ class TimerViewModel(
             currentProfileId = preferences.currentProfileId,
             globalFontFamilyIndex = preferences.globalFontFamilyIndex,
             globalFontColorArgb = preferences.globalFontColorArgb,
+            dailyGoalSessions = preferences.dailyGoalSessions,
+            autoStartNextSession = preferences.autoStartNextSession,
             nextcloudConfig = currentNcState?.nextcloudConfig ?: nextcloudPrefs.getConfig(),
             nextcloudTasks = currentNcState?.nextcloudTasks ?: emptyList(),
             activeTask = currentNcState?.activeTask,
@@ -138,16 +140,20 @@ class TimerViewModel(
         tickerJob = viewModelScope.launch {
             val startMillis = now()
             val initialRemaining = _uiState.value.remainingMillis
-            
+
             while (_uiState.value.remainingMillis > 0) {
                 delay(TICK_MILLIS)
                 val elapsed = now() - startMillis
-                _uiState.update { 
-                    it.copy(remainingMillis = (initialRemaining - elapsed).coerceAtLeast(0)) 
+                _uiState.update {
+                    it.copy(remainingMillis = (initialRemaining - elapsed).coerceAtLeast(0))
                 }
             }
             _uiState.update { it.copy(isRunning = false, isFinished = true) }
             notifier.notifySessionComplete()
+            if (preferences.autoStartNextSession) {
+                delay(1200L)
+                if (_uiState.value.isFinished) startNextSession()
+            }
         }
     }
 
@@ -188,7 +194,7 @@ class TimerViewModel(
             preferences.shortBreakMinutes = profile.shortBreakMinutes
             preferences.longBreakMinutes = profile.longBreakMinutes
             preferences.timerColorArgb = profile.colorArgb
-            
+
             _uiState.update { state ->
                 val untouched = !state.isRunning && !state.isFinished && state.remainingMillis == state.totalMillis
                 if (untouched) {
@@ -221,12 +227,12 @@ class TimerViewModel(
         preferences.currentProfileId = profileId
         val profiles = preferences.getProfiles()
         val profile = profiles.find { it.id == profileId } ?: return
-        
+
         preferences.focusMinutes = profile.focusMinutes
         preferences.shortBreakMinutes = profile.shortBreakMinutes
         preferences.longBreakMinutes = profile.longBreakMinutes
         preferences.timerColorArgb = profile.colorArgb
-        
+
         _uiState.update { buildFreshState(it.sessionType) }
     }
 
@@ -259,12 +265,19 @@ class TimerViewModel(
     fun updateGlobalSettings(fontFamilyIndex: Int, fontColorArgb: Long) {
         preferences.globalFontFamilyIndex = fontFamilyIndex
         preferences.globalFontColorArgb = fontColorArgb
-        _uiState.update { 
+        _uiState.update {
             it.copy(
                 globalFontFamilyIndex = fontFamilyIndex,
                 globalFontColorArgb = fontColorArgb
             )
         }
+    }
+
+    /** Saves the daily focus target and whether completed sessions should chain automatically. */
+    fun updateProductivitySettings(dailyGoalSessions: Int, autoStartNextSession: Boolean) {
+        preferences.dailyGoalSessions = dailyGoalSessions.coerceIn(1, 12)
+        preferences.autoStartNextSession = autoStartNextSession
+        _uiState.update { it.copy(dailyGoalSessions = preferences.dailyGoalSessions, autoStartNextSession = autoStartNextSession) }
     }
 
     /** Connects to Nextcloud Tasks and validates credentials. */
@@ -277,20 +290,20 @@ class TimerViewModel(
             if (testResult.isSuccess) {
                 nextcloudPrefs.saveConfig(config)
                 val calendarsCount = testResult.getOrDefault(0)
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         nextcloudConfig = config,
                         nextcloudSuccessMessage = "Connected ($calendarsCount task calendar(s) found)"
-                    ) 
+                    )
                 }
                 fetchNextcloudTasks()
             } else {
                 val errorMsg = testResult.exceptionOrNull()?.localizedMessage ?: "Failed to connect to Nextcloud"
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         isNextcloudLoading = false,
                         nextcloudError = "Connection failed: $errorMsg"
-                    ) 
+                    )
                 }
             }
         }
@@ -299,14 +312,14 @@ class TimerViewModel(
     /** Clears Nextcloud configuration and task data. */
     fun disconnectNextcloud() {
         nextcloudPrefs.clearConfig()
-        _uiState.update { 
+        _uiState.update {
             it.copy(
                 nextcloudConfig = null,
                 nextcloudTasks = emptyList(),
                 activeTask = null,
                 nextcloudError = null,
                 nextcloudSuccessMessage = "Disconnected from Nextcloud"
-            ) 
+            )
         }
     }
 
@@ -324,20 +337,20 @@ class TimerViewModel(
                     tasks.find { it.uid == currentActive.uid } ?: currentActive
                 } else null
 
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         nextcloudTasks = tasks,
                         activeTask = updatedActive,
                         isNextcloudLoading = false
-                    ) 
+                    )
                 }
             } else {
                 val errorMsg = result.exceptionOrNull()?.localizedMessage ?: "Failed to fetch tasks"
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         isNextcloudLoading = false,
                         nextcloudError = "Sync error: $errorMsg"
-                    ) 
+                    )
                 }
             }
         }
@@ -369,21 +382,21 @@ class TimerViewModel(
                 } else {
                     _uiState.value.activeTask
                 }
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         nextcloudTasks = updatedList,
                         activeTask = updatedActive,
                         isNextcloudLoading = false,
                         nextcloudSuccessMessage = "Completed: \"${task.summary}\""
-                    ) 
+                    )
                 }
             } else {
                 val errorMsg = result.exceptionOrNull()?.localizedMessage ?: "Failed to complete task"
-                _uiState.update { 
+                _uiState.update {
                     it.copy(
                         isNextcloudLoading = false,
                         nextcloudError = errorMsg
-                    ) 
+                    )
                 }
             }
         }
